@@ -1,16 +1,16 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, memo, useContext, type ReactNode } from 'react'
 import { formatDate, formatDaysLeft, getDaysLeft, isOverdue } from '../../../utils/date'
 import { PRIORITY_LABELS, type Assignment, type AssignmentId } from '../assignmentTypes'
+import { usePinStore } from '../usePinStore'
 
-// Compound Component: AssignmentCard chia sẻ dữ liệu bài tập cho các component con qua Context
-const AssignmentContext = createContext<Assignment | null>(null)
+const AssignmentContext = createContext<{ assignment: Assignment; isPinned: boolean } | null>(null)
 
-function useAssignmentContext(): Assignment {
-  const assignment = useContext(AssignmentContext)
-  if (!assignment) {
+function useAssignmentContext() {
+  const context = useContext(AssignmentContext)
+  if (!context) {
     throw new Error('Các component AssignmentCard.* phải nằm trong <AssignmentCard>')
   }
-  return assignment
+  return context
 }
 
 interface RootProps {
@@ -18,9 +18,12 @@ interface RootProps {
   children: ReactNode
 }
 
-export function AssignmentCard({ assignment, children }: RootProps) {
+function BaseAssignmentCard({ assignment, children }: RootProps) {
+  const isPinned = usePinStore((state) => state.pinnedIds.includes(assignment.id))
+
   const className = [
     'card',
+    isPinned && 'card--pinned',
     assignment.completed && 'card--done',
     isOverdue(assignment) && 'card--overdue',
   ]
@@ -28,24 +31,26 @@ export function AssignmentCard({ assignment, children }: RootProps) {
     .join(' ')
 
   return (
-    <AssignmentContext.Provider value={assignment}>
-      <li className={className}>{children}</li>
+    <AssignmentContext.Provider value={{ assignment, isPinned }}>
+      <li className={className} data-testid={`card-${assignment.id}`}>
+        {children}
+      </li>
     </AssignmentContext.Provider>
   )
 }
 
 function Subject() {
-  const { subject } = useAssignmentContext()
-  return <span className="card__subject">{subject}</span>
+  const { assignment } = useAssignmentContext()
+  return <span className="card__subject">{assignment.subject}</span>
 }
 
 function Title() {
-  const { title } = useAssignmentContext()
-  return <span className="card__title">{title}</span>
+  const { assignment } = useAssignmentContext()
+  return <span className="card__title">{assignment.title}</span>
 }
 
 function Deadline() {
-  const assignment = useAssignmentContext()
+  const { assignment } = useAssignmentContext()
   const { deadline } = assignment
   return (
     <span className="card__deadline">
@@ -56,45 +61,86 @@ function Deadline() {
 }
 
 function Priority() {
-  const { priority } = useAssignmentContext()
-  return <span className={`badge badge--${priority}`}>Ưu tiên: {PRIORITY_LABELS[priority]}</span>
+  const { assignment } = useAssignmentContext()
+  return <span className={`badge badge--${assignment.priority}`}>Ưu tiên: {PRIORITY_LABELS[assignment.priority]}</span>
 }
 
 function Status() {
-  const assignment = useAssignmentContext()
-  if (assignment.completed) return <span className="badge badge--done">Đã hoàn thành</span>
-  if (isOverdue(assignment)) return <span className="badge badge--overdue">Quá hạn</span>
-  return <span className="badge">Chưa hoàn thành</span>
+  const { assignment, isPinned } = useAssignmentContext()
+  return (
+    <div className="card__badges">
+      {isPinned && <span className="badge badge--pinned">📌 Đã ghim</span>}
+      {assignment.completed ? (
+        <span className="badge badge--done">Đã hoàn thành</span>
+      ) : isOverdue(assignment) ? (
+        <span className="badge badge--overdue">Quá hạn</span>
+      ) : (
+        <span className="badge">Chưa hoàn thành</span>
+      )}
+    </div>
+  )
 }
 
 interface ActionsProps {
   onToggle: (id: AssignmentId) => void
   onDelete: (id: AssignmentId) => void
+  onPin?: (id: AssignmentId) => void
 }
 
-function Actions({ onToggle, onDelete }: ActionsProps) {
-  const { id, title, completed } = useAssignmentContext()
+function Actions({ onToggle, onDelete, onPin }: ActionsProps) {
+  const { assignment, isPinned } = useAssignmentContext()
+  const togglePinStore = usePinStore((state) => state.togglePin)
+
+  const handlePin = () => {
+    if (onPin) {
+      onPin(assignment.id)
+    } else {
+      togglePinStore(assignment.id)
+    }
+  }
 
   const handleDelete = () => {
-    if (window.confirm(`Xoá bài tập "${title}"?`)) onDelete(id)
+    if (window.confirm(`Xoá bài tập "${assignment.title}"?`)) onDelete(assignment.id)
   }
 
   return (
     <div className="card__actions">
-      <label>
-        <input type="checkbox" checked={completed} onChange={() => onToggle(id)} /> Hoàn thành
-      </label>
-      <button type="button" className="btn-delete" onClick={handleDelete}>
+      <div className="card__actions-left">
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={assignment.completed}
+            onChange={() => onToggle(assignment.id)}
+            aria-label={`Mark ${assignment.title} as completed`}
+          />{' '}
+          Hoàn thành
+        </label>
+        <button
+          type="button"
+          className={`btn-pin ${isPinned ? 'btn-pin--active' : ''}`}
+          onClick={handlePin}
+          title={isPinned ? 'Bỏ ghim bài tập' : 'Ghim bài tập'}
+          aria-label={`Ghim ${assignment.title}`}
+        >
+          {isPinned ? '📌 Đã ghim' : '📌 Ghim'}
+        </button>
+      </div>
+
+      <button type="button" className="btn-delete" onClick={handleDelete} aria-label={`Xoá ${assignment.title}`}>
         Xoá
       </button>
     </div>
   )
 }
 
-// Gắn các component con vào component cha: <AssignmentCard.Title />, ...
-AssignmentCard.Subject = Subject
-AssignmentCard.Title = Title
-AssignmentCard.Deadline = Deadline
-AssignmentCard.Priority = Priority
-AssignmentCard.Status = Status
-AssignmentCard.Actions = Actions
+const AssignmentCardMemo = memo(BaseAssignmentCard)
+
+export const AssignmentCard = Object.assign(AssignmentCardMemo, {
+  Subject,
+  Title,
+  Deadline,
+  Priority,
+  Status,
+  Actions,
+})
+

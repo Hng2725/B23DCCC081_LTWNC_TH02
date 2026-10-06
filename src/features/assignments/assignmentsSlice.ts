@@ -5,7 +5,7 @@ import { getDaysLeft, isOverdue } from '../../utils/date'
 import { isAssignmentArray } from '../../utils/typeGuards'
 import type { FilterStatus } from '../filter/filterSlice'
 import { fetchAssignmentsAPI } from './assignmentsAPI'
-import type { Assignment, AssignmentId, NewAssignment } from './assignmentTypes'
+import type { Assignment, AssignmentId, NewAssignment, Priority } from './assignmentTypes'
 
 interface AssignmentsState {
   items: Assignment[]
@@ -61,6 +61,15 @@ const assignmentsSlice = createSlice({
     deleteAssignment(state, action: PayloadAction<AssignmentId>) {
       state.items = state.items.filter((a) => a.id !== action.payload)
     },
+    bulkAddAssignments(state, action: PayloadAction<Assignment[]>) {
+      state.items = action.payload
+      state.status = 'succeeded'
+    },
+    resetAssignments(state) {
+      state.items = []
+      state.status = 'idle'
+      state.error = null
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -79,8 +88,30 @@ const assignmentsSlice = createSlice({
   },
 })
 
-export const { addAssignment, toggleAssignment, deleteAssignment } = assignmentsSlice.actions
+export const { addAssignment, toggleAssignment, deleteAssignment, bulkAddAssignments, resetAssignments } = assignmentsSlice.actions
 export default assignmentsSlice.reducer
+
+export function generateMockAssignments(count = 10000): Assignment[] {
+  const subjects = ['Lập trình Web', 'Cơ sở dữ liệu', 'Toán rời rạc', 'Mạng máy tính', 'Kiến trúc máy tính', 'Hệ điều hành']
+  const priorities: Priority[] = ['low', 'medium', 'high']
+  const items: Assignment[] = []
+  const now = new Date()
+
+  for (let i = 1; i <= count; i++) {
+    const daysOffset = (i % 30) - 10
+    const d = new Date(now)
+    d.setDate(d.getDate() + daysOffset)
+    items.push({
+      id: `mock-${i}`,
+      subject: subjects[i % subjects.length],
+      title: `Bài tập mẫu ${i}`,
+      deadline: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+      priority: priorities[i % priorities.length],
+      completed: i % 4 === 0,
+    })
+  }
+  return items
+}
 
 // ----- Selectors -----
 export const selectAllAssignments = (state: RootState) => state.assignments.items
